@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Budget Tracker</title>
+    <link rel="icon" href="favicon.ico" type="image/x-icon">
+    <style>
+        :root {
+            --light-bg: #f0f0f5;
+            --light-text: #333;
+            --light-card-bg: white;
+            --dark-bg: #1e1e1e;
+            --dark-text: #f0f0f0;
+            --dark-card-bg: #333;
+            --primary-color: #007aff;
+            --hover-color: #0051a8;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--light-bg);
+            color: var(--light-text);
+            margin: 0;
+            padding: 20px;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        body.dark-mode {
+            background-color: var(--dark-bg);
+            color: var(--dark-text);
+        }
+
+        .container {
+            max-width: 600px;
+            margin: auto;
+            background: var(--light-card-bg);
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+            border: 1px solid #e0e0e0;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        body.dark-mode .container {
+            background: var(--dark-card-bg);
+            border: 1px solid #444;
+        }
+
+        h1, h2, h3 {
+            text-align: center;
+        }
+
+        form {
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 20px;
+        }
+
+        input, button {
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 10px;
+            border: 1px solid #ccc;
+            transition: border-color 0.3s;
+        }
+
+        input:focus {
+            border-color: var(--primary-color);
+            outline: none;
+        }
+
+        button {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            
+        }
+
+        button:hover {
+            background-color: var(--hover-color);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        th, td {
+            padding: 10px;
+            border: 1px solid #ddd;
+        }
+
+        th {
+            background-color: #f2f2f2;
+        }
+
+        body.dark-mode th {
+            background-color: #444;
+        }
+
+        .total-card {
+    position: relative;
+    background-color: var(--primary-color);
+    color: white;
+    padding: 10px;
+    border-radius: 10px;
+    width: 200px;
+    text-align: center;
+    font-size: 1.2em;
+    margin-bottom: 20px;
+    margin-top: 20px;
+    margin-left: auto; /* Aligns the card to the right */
+    margin-right: 0;   /* Makes sure it's flush to the right */
+}
+
+.total-card span {
+    font-weight: bold;
+}
+
+.total-display {
+    position: absolute;
+    top: 10px;
+    right: 20px;
+    font-size: 1.5em;
+    color: white;
+}
+
+
+        .alert {
+            padding: 10px;
+            background-color: #f9c2c2;
+            color: #d8000c;
+            border: 1px solid #d8000c;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        #dark-mode-toggle {
+            margin: 10px;
+            cursor: pointer;
+            
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Budget Tracker</h1>
+        <button id="dark-mode-toggle">Switch to Dark Mode</button>
+        <div class="alert" id="alert-message"></div>
+
+        <h2>Add Expense</h2>
+        <form id="budget-form">
+            <input type="text" id="description" placeholder="Expense Description" required>
+            <input type="number" id="amount" placeholder="Amount" required>
+            <input type="date" id="date" required>
+            <button type="submit">Add Expense</button>
+        </form>
+
+        <h2>Search Expenses</h2>
+        <input type="text" id="search" placeholder="Search by Description">
+
+        <h2>Expenses</h2>
+        <table id="expense-table">
+            <thead>
+                <tr>
+                    <th>Description</th>
+                    <th>Amount</th>
+                    <th>Date</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="expense-list"></tbody>
+        </table>
+        <div class="total-card">
+            Total Expenses: $<span id="total-amount">0.00</span>
+        </div>
+        
+        <button id="export-button">Export to CSV</button>
+    </div>
+
+    <script>
+        let db;
+        let editingId = null;
+        let darkMode = false;
+
+        document.addEventListener("DOMContentLoaded", () => {
+            const request = indexedDB.open("BudgetDB", 1);
+
+            request.onupgradeneeded = (event) => {
+                db = event.target.result;
+                const expenseStore = db.createObjectStore("expenses", { keyPath: "id", autoIncrement: true });
+                expenseStore.createIndex("description", "description", { unique: false });
+                expenseStore.createIndex("amount", "amount", { unique: false });
+                expenseStore.createIndex("date", "date", { unique: false });
+            };
+
+            request.onsuccess = (event) => {
+                db = event.target.result;
+                displayExpenses();
+            };
+
+            request.onerror = (event) => {
+                showAlert("Database error: " + event.target.errorCode);
+            };
+
+            document.getElementById("budget-form").addEventListener("submit", (event) => {
+                event.preventDefault();
+                const description = document.getElementById("description").value;
+                const amount = parseFloat(document.getElementById("amount").value);
+                const date = document.getElementById("date").value;
+
+                if (editingId) {
+                    updateExpense(editingId, description, amount, date);
+                } else {
+                    addExpense(description, amount, date);
+                }
+            });
+
+            document.getElementById("dark-mode-toggle").addEventListener("click", toggleDarkMode);
+
+            document.getElementById("export-button").addEventListener("click", exportToCSV);
+            document.getElementById("search").addEventListener("input", displayExpenses);
+        });
+
+        function showAlert(message) {
+            const alertBox = document.getElementById("alert-message");
+            alertBox.textContent = message;
+            alertBox.style.display = "block";
+            setTimeout(() => {
+                alertBox.style.display = "none";
+            }, 3000);
+        }
+
+        function toggleDarkMode() {
+            darkMode = !darkMode;
+            document.body.classList.toggle('dark-mode', darkMode);
+            document.getElementById("dark-mode-toggle").textContent = darkMode ? "Switch to Light Mode" : "Switch to Dark Mode";
+        }
+
+        function addExpense(description, amount, date) {
+            if (amount <= 0) {
+                showAlert("Amount must be greater than zero!");
+                return;
+            }
+
+            const transaction = db.transaction(["expenses"], "readwrite");
+            const objectStore = transaction.objectStore("expenses");
+            const expense = { description, amount, date };
+            const request = objectStore.add(expense);
+
+            request.onsuccess = () => {
+                showAlert("Expense added!");
+                displayExpenses();
+                document.getElementById("budget-form").reset();
+            };
+
+            request.onerror = () => {
+                showAlert("Error adding expense: " + request.error);
+            };
+        }
+
+        function updateExpense(id, description, amount, date) {
+            const transaction = db.transaction(["expenses"], "readwrite");
+            const objectStore = transaction.objectStore("expenses");
+            const expense = { id, description, amount, date };
+            const request = objectStore.put(expense);
+
+            request.onsuccess = () => {
+                showAlert("Expense updated!");
+                displayExpenses();
+                document.getElementById("budget-form").reset();
+                editingId = null;
+            };
+
+            request.onerror = () => {
+                showAlert("Error updating expense: " + request.error);
+            };
+        }
+
+        function displayExpenses() {
+            const searchQuery = document.getElementById("search").value.toLowerCase();
+            const transaction = db.transaction(["expenses"], "readonly");
+            const objectStore = transaction.objectStore("expenses");
+            const request = objectStore.getAll();
+
+            request.onsuccess = (event) => {
+                const expenses = event.target.result;
+                const expenseList = document.getElementById("expense-list");
+                expenseList.innerHTML = "";
+
+                const filteredExpenses = expenses.filter(expense => 
+                    expense.description.toLowerCase().includes(searchQuery)
+                );
+
+                const total = filteredExpenses.reduce((acc, expense) => acc + expense.amount, 0);
+
+                filteredExpenses.forEach(expense => {
+                    const tr = document.createElement("tr");
+                    tr.innerHTML = `
+                        <td>${expense.description}</td>
+                        <td>$${expense.amount.toFixed(2)}</td>
+                        <td>${new Date(expense.date).toLocaleDateString()}</td>
+                        <td>
+                            <button onclick="editExpense(${expense.id})">Edit</button>
+                            <button onclick="confirmDeleteExpense(${expense.id})">Delete</button>
+                        </td>
+                    `;
+                    expenseList.appendChild(tr);
+                });
+
+                document.getElementById("total-amount").textContent = total.toFixed(2);
+            };
+        }
+
+        function confirmDeleteExpense(id) {
+            if (confirm("Are you sure you want to delete this expense?")) {
+                deleteExpense(id);
+            }
+        }
+
+        function deleteExpense(id) {
+            const transaction = db.transaction(["expenses"], "readwrite");
+            const objectStore = transaction.objectStore("expenses");
+            const request = objectStore.delete(id);
+
+            request.onsuccess = () => {
+                showAlert("Expense deleted!");
+                displayExpenses();
+            };
+
+            request.onerror = () => {
+                showAlert("Error deleting expense: " + request.error);
+            };
+        }
+
+        function editExpense(id) {
+            const transaction = db.transaction(["expenses"], "readonly");
+            const objectStore = transaction.objectStore("expenses");
+            const request = objectStore.get(id);
+
+            request.onsuccess = () => {
+                const expense = request.result;
+                document.getElementById("description").value = expense.description;
+                document.getElementById("amount").value = expense.amount;
+                document.getElementById("date").value = expense.date;
+                editingId = id;
+            };
+
+            request.onerror = () => {
+                showAlert("Error editing expense: " + request.error);
+            };
+        }
+
+        function displayExpenses() {
+    const searchQuery = document.getElementById("search").value.toLowerCase();
+    const transaction = db.transaction(["expenses"], "readonly");
+    const objectStore = transaction.objectStore("expenses");
+    const request = objectStore.getAll();
+
+    request.onsuccess = (event) => {
+        const expenses = event.target.result;
+        const expenseList = document.getElementById("expense-list");
+        expenseList.innerHTML = "";
+
+        const filteredExpenses = expenses.filter(expense =>
+            expense.description.toLowerCase().includes(searchQuery)
+        );
+
+        const total = filteredExpenses.reduce((acc, expense) => acc + expense.amount, 0);
+
+        filteredExpenses.forEach(expense => {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+                <td>${expense.description}</td>
+                <td>$${expense.amount.toFixed(2)}</td>
+                <td>${new Date(expense.date).toLocaleDateString()}</td>
+                <td>
+                    <button onclick="editExpense(${expense.id})">Edit</button>
+                    <button onclick="confirmDeleteExpense(${expense.id})">Delete</button>
+                </td>
+            `;
+            expenseList.appendChild(tr);
+        });
+
+        // Update the total amount in the card
+        document.getElementById("total-amount").textContent = total.toFixed(2);
+    };
+}
+
+
+        function exportToCSV() {
+            const transaction = db.transaction(["expenses"], "readonly");
+            const objectStore = transaction.objectStore("expenses");
+            const request = objectStore.getAll();
+
+            request.onsuccess = (event) => {
+                const expenses = event.target.result;
+                let csvContent = "data:text/csv;charset=utf-8,Description,Amount,Date\n";
+
+                expenses.forEach(expense => {
+                    csvContent += `${expense.description},${expense.amount},${expense.date}\n`;
+                });
+
+                const encodedUri = encodeURI(csvContent);
+                const link = document.createElement("a");
+                link.setAttribute("href", encodedUri);
+                link.setAttribute("download", "expenses.csv");
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            };
+        }
+    </script>
+</body>
+</html>
